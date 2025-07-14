@@ -595,6 +595,9 @@ typedef struct _PTPIPHeader PTPIPHeader;
 #define PTP_OC_NIKON_DelCstPicCtrl	0x90CE	/* 1 param, no data */
 #define PTP_OC_NIKON_GetPicCtrlCapability	0x90CF	/* 1 param, data in */
 
+/* Nikon STA mode authentication */
+#define PTP_OC_NIKON_GetAuthentication	0x9530
+
 /* Nikon Liveview stuff */
 #define PTP_OC_NIKON_GetPreviewImg	0x9200
 #define PTP_OC_NIKON_StartLiveView	0x9201	/* no params */

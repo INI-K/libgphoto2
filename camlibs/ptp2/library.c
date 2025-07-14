@@ -9620,6 +9620,21 @@ camera_init (Camera *camera, GPContext *context)
 			params->event_wait	= ptp_fujiptpip_event_wait;
 			params->event_check	= ptp_fujiptpip_event_check;
 			params->event_check_queue	= ptp_fujiptpip_event_check_queue;
+		} else if (strstr(xpath, "mode=sta")) {
+			/* PTP/IP Nikon STA mode */
+			ret = ptp_nikonptpip_connect(params, xpath);
+			if (ret != GP_OK) {
+				GP_LOG_E ("Failed to connect (Nikon STA).");
+				return ret;
+			}
+			/* Use generic PTP/IP functions for subsequent communication */
+			params->sendreq_func	= ptp_ptpip_sendreq;
+			params->senddata_func	= ptp_ptpip_senddata;
+			params->getresp_func	= ptp_ptpip_getresp;
+			params->getdata_func	= ptp_ptpip_getdata;
+			params->event_wait	= ptp_ptpip_event_wait;
+			params->event_check	= ptp_ptpip_event_check;
+			params->event_check_queue	= ptp_ptpip_event_check_queue;
 		} else {
 			ret = ptp_ptpip_connect (params, xpath);
 			if (ret != GP_OK) {

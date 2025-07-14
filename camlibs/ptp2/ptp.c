@@ -26,6 +26,9 @@
 #include "config.h"
 #include "ptp.h"
 
+/* Custom return code for Nikon STA mode reconnect. */
+#define PTP_RC_NIKON_STA_RECONNECT 0xA101 /* Custom code to signal STA phase 1 is done. */
+
 #ifdef HAVE_LIBXML2
 # include <libxml/parser.h>
 #endif
@@ -1919,11 +1922,65 @@ ptp_generic_no_data (PTPParams* params, uint16_t code, unsigned int n_param, ...
  *
  * Return values: Some PTP_RC_* code.
  **/
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+#endif
+
+/* Internal helper for Nikon STA mode phase 1 authentication */
+static uint16_t
+ptp_nikon_sta_phase1_auth (PTPParams *params)
+{
+    uint16_t ret;
+    PTPContainer ptp;
+    unsigned char *data = NULL;
+    unsigned int size;
+
+    ptp_debug(params, "Nikon STA: Sending command 0x952b.");
+    /* Per python script analysis, transaction id for this is 1 */
+    params->transaction_id = 1;
+    PTP_CNT_INIT(ptp, 0x952b);
+    ret = ptp_transaction(params, &ptp, PTP_DP_GETDATA, 0, &data, &size);
+    if (data) free(data);
+    data = NULL;
+    if (ret != PTP_RC_OK) {
+        ptp_error(params, "Nikon STA: Command 0x952b failed with 0x%04x", ret);
+        return ret;
+    }
+
+    ptp_debug(params, "Nikon STA: Sending command 0x935a.");
+    /* Per python script analysis, transaction id for this is 2 */
+    params->transaction_id = 2;
+    PTP_CNT_INIT(ptp, 0x935a, 0x2001); /* Param 0x2001 (PTP_RC_OK) per observed traces */
+    ret = ptp_transaction(params, &ptp, PTP_DP_GETDATA, 0, &data, &size);
+    if (data) free(data);
+    if (ret != PTP_RC_OK) {
+        ptp_error(params, "Nikon STA: Command 0x935a failed with 0x%04x", ret);
+        return ret;
+    }
+
+    ptp_debug(params, "Nikon STA: Phase 1 authentication successful.");
+    return PTP_RC_OK;
+}
+
 uint16_t
 ptp_opensession (PTPParams* params, uint32_t session)
 {
 	PTPContainer	ptp;
 	uint16_t	ret;
+
+	/* NOTE: The 'nikon_sta_mode' flag must be added to the PTPParams struct in ptp.h
+	 * 0 = off, 1 = phase 1 connect */
+	if (params->nikon_sta_mode == 1) {
+		PTPDeviceInfo di;
+
+		ptp_debug(params, "Nikon STA mode (Phase 1) detected. Performing special handshake.");
+		ret = ptp_getdeviceinfo(params, &di);
+		ptp_free_deviceinfo(&di);
+		if (ret != PTP_RC_OK) {
+			ptp_error(params, "Nikon STA: GetDeviceInfo failed: 0x%04x", ret);
+			return ret;
+		}
+	}
 
 	ptp_debug(params,"PTP: Opening session");
 
@@ -1940,9 +1997,22 @@ ptp_opensession (PTPParams* params, uint32_t session)
 
 	PTP_CNT_INIT(ptp, PTP_OC_OpenSession, session);
 	ret=ptp_transaction_new(params, &ptp, PTP_DP_NODATA, 0, NULL);
-	/* TODO: check for error */
+	if (ret != PTP_RC_OK) {
+		return ret;
+	}
 	/* now set the global session id to current session number */
 	params->session_id=session;
+
+	if (params->nikon_sta_mode == 1) {
+		ret = ptp_nikon_sta_phase1_auth(params);
+		if (ret != PTP_RC_OK) {
+			ptp_error(params, "Nikon STA phase 1 auth failed.");
+			return ret;
+		}
+		/* Signal to the caller that a reconnect is needed for phase 2. */
+		return PTP_RC_NIKON_STA_RECONNECT;
+	}
+
 	return ret;
 }
 
